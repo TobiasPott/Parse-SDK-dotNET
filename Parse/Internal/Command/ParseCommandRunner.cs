@@ -81,58 +81,65 @@ namespace Parse.Core.Internal
             }).Unwrap();
         }
 
+        private object prepareCommandHeaderLock = new object();
         private const string revocableSessionTokentrueValue = "1";
         private Task<ParseCommand> PrepareCommand(ParseCommand command)
         {
-            ParseCommand newCommand = new ParseCommand(command);
+            ParseCommand newCommand = null;
+            lock (prepareCommandHeaderLock)
+                newCommand = new ParseCommand(command);
 
             Task<ParseCommand> installationIdTask = installationIdController.GetAsync().ContinueWith(t =>
             {
-                newCommand.Headers.Add(new KeyValuePair<string, string>("X-Parse-Installation-Id", t.Result.ToString()));
+                lock (prepareCommandHeaderLock)
+                    newCommand.Headers.Add(new KeyValuePair<string, string>("X-Parse-Installation-Id", t.Result.ToString()));
                 return newCommand;
             });
 
-            // TODO (richardross): Inject configuration instead of using shared static here.
-            ParseClient.Configuration configuration = ParseClient.CurrentConfiguration;
-            newCommand.Headers.Add(new KeyValuePair<string, string>("X-Parse-Application-Id", configuration.ApplicationID));
-            newCommand.Headers.Add(new KeyValuePair<string, string>("X-Parse-Client-Version", ParseClient.VersionString));
-
-            if (configuration.AuxiliaryHeaders != null)
+            lock (prepareCommandHeaderLock)
             {
-                foreach (KeyValuePair<string, string> header in configuration.AuxiliaryHeaders)
+                // TODO (richardross): Inject configuration instead of using shared static here.
+                ParseClient.Configuration configuration = ParseClient.CurrentConfiguration;
+                newCommand.Headers.Add(new KeyValuePair<string, string>("X-Parse-Application-Id", configuration.ApplicationID));
+                newCommand.Headers.Add(new KeyValuePair<string, string>("X-Parse-Client-Version", ParseClient.VersionString));
+
+                if (configuration.AuxiliaryHeaders != null)
                 {
-                    newCommand.Headers.Add(header);
+                    foreach (KeyValuePair<string, string> header in configuration.AuxiliaryHeaders)
+                    {
+                        newCommand.Headers.Add(header);
+                    }
                 }
-            }
 
-            if (!String.IsNullOrEmpty(configuration.VersionInfo.BuildVersion))
-            {
-                newCommand.Headers.Add(new KeyValuePair<string, string>("X-Parse-App-Build-Version", configuration.VersionInfo.BuildVersion));
-            }
-            if (!String.IsNullOrEmpty(configuration.VersionInfo.DisplayVersion))
-            {
-                newCommand.Headers.Add(new KeyValuePair<string, string>("X-Parse-App-Display-Version", configuration.VersionInfo.DisplayVersion));
-            }
-            if (!String.IsNullOrEmpty(configuration.VersionInfo.OSVersion))
-            {
-                newCommand.Headers.Add(new KeyValuePair<string, string>("X-Parse-OS-Version", configuration.VersionInfo.OSVersion));
-            }
+                if (!String.IsNullOrEmpty(configuration.VersionInfo.BuildVersion))
+                {
+                    newCommand.Headers.Add(new KeyValuePair<string, string>("X-Parse-App-Build-Version", configuration.VersionInfo.BuildVersion));
+                }
+                if (!String.IsNullOrEmpty(configuration.VersionInfo.DisplayVersion))
+                {
+                    newCommand.Headers.Add(new KeyValuePair<string, string>("X-Parse-App-Display-Version", configuration.VersionInfo.DisplayVersion));
+                }
+                if (!String.IsNullOrEmpty(configuration.VersionInfo.OSVersion))
+                {
+                    newCommand.Headers.Add(new KeyValuePair<string, string>("X-Parse-OS-Version", configuration.VersionInfo.OSVersion));
+                }
 
-            // TODO (richardross): I hate the idea of having this super tightly coupled static variable in here.
-            // Lets eventually get rid of it.
-            if (!String.IsNullOrEmpty(ParseClient.MasterKey))
-            {
-                newCommand.Headers.Add(new KeyValuePair<string, string>("X-Parse-Master-Key", ParseClient.MasterKey));
-            }
-            else
-            {
-                newCommand.Headers.Add(new KeyValuePair<string, string>("X-Parse-Windows-Key", configuration.Key));
-            }
+                // TODO (richardross): I hate the idea of having this super tightly coupled static variable in here.
+                // Lets eventually get rid of it.
+                if (!String.IsNullOrEmpty(ParseClient.MasterKey))
+                {
+                    newCommand.Headers.Add(new KeyValuePair<string, string>("X-Parse-Master-Key", ParseClient.MasterKey));
+                }
+                else
+                {
+                    newCommand.Headers.Add(new KeyValuePair<string, string>("X-Parse-Windows-Key", configuration.Key));
+                }
 
-            // TODO (richardross): Inject this instead of using static here.
-            if (ParseUser.IsRevocableSessionEnabled)
-            {
-                newCommand.Headers.Add(new KeyValuePair<string, string>("X-Parse-Revocable-Session", revocableSessionTokentrueValue));
+                // TODO (richardross): Inject this instead of using static here.
+                if (ParseUser.IsRevocableSessionEnabled)
+                {
+                    newCommand.Headers.Add(new KeyValuePair<string, string>("X-Parse-Revocable-Session", revocableSessionTokentrueValue));
+                }
             }
 
             return installationIdTask;
